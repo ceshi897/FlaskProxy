@@ -1,0 +1,3 @@
+Flask
+requests
+gunicorn  # Render 推荐使用 Gunicorn 来运行生产环境的 Flask 应用
