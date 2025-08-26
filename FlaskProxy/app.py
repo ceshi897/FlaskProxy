@@ -13,7 +13,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
 
 # Target API endpoint
-TARGET_URL = "https://webapi.360se.dpdns.org"
+TARGET_URL = "https://360seapi.ceshi897.cn"
 
 # Headers that should not be forwarded to avoid connection issues
 EXCLUDED_HEADERS = {
@@ -42,7 +42,7 @@ def proxy(path):
                 headers[key] = value
         
         # Set the host header to the target host
-        headers['Host'] = 'webapi.360se.dpdns.org'
+        headers['Host'] = '360seapi.ceshi897.cn'
         
         # Prepare request data
         data = None
