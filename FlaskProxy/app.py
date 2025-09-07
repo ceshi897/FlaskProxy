@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
 
-# Target API endpoint
+# Target API endpoint (Cloudflare Worker)
 TARGET_URL = "https://360seapi.ceshi897.cn"
 
-# Headers that should not be forwarded to avoid connection issues
+# Headers that should not be forwarded
 EXCLUDED_HEADERS = {
     'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer',
     'upgrade', 'proxy-authenticate', 'proxy-authorization', 'host'
@@ -24,26 +24,35 @@ EXCLUDED_HEADERS = {
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 def proxy(path):
-    """
-    Proxy all requests to the target API endpoint
-    """
     try:
         # Construct the target URL
         target_url = urljoin(TARGET_URL, path)
         if request.query_string:
             target_url += '?' + request.query_string.decode('utf-8')
-        
-        logger.debug(f"Proxying {request.method} request to: {target_url}")
-        
-        # Prepare headers for forwarding
+
+        # 获取真实客户端 IP
+        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+
+        # 构造 X-Forwarded-For 链
+        existing_xff = request.headers.get("X-Forwarded-For")
+        if existing_xff:
+            xff_value = f"{existing_xff}, {request.remote_addr}"
+        else:
+            xff_value = request.remote_addr
+
+        logger.info(f"Incoming client: {client_ip}")
+        logger.info(f"Forwarding X-Forwarded-For: {xff_value}")
+
+        # Prepare headers
         headers = {}
         for key, value in request.headers:
             if key.lower() not in EXCLUDED_HEADERS:
                 headers[key] = value
-        
-        # Set the host header to the target host
-        headers['Host'] = '360seapi.ceshi897.cn'
-        
+
+        # Set Host header to target host
+        headers['Host'] = urljoin(TARGET_URL, "/").split("//", 1)[1].strip("/")
+        headers['X-Forwarded-For'] = xff_value
+
         # Prepare request data
         data = None
         if request.method in ['POST', 'PUT', 'PATCH']:
@@ -51,58 +60,30 @@ def proxy(path):
                 data = request.get_json()
             else:
                 data = request.get_data()
-        
-        # Make the proxy request
+
+        # Forward request
         response = requests.request(
             method=request.method,
             url=target_url,
             headers=headers,
             data=data,
-            params=None,  # Already included in target_url
             allow_redirects=False,
             stream=True,
             timeout=30
         )
-        
-        logger.debug(f"Received response with status: {response.status_code}")
-        
-        # Prepare response headers
+
+        # Filter response headers
         response_headers = {}
         for key, value in response.headers.items():
             if key.lower() not in EXCLUDED_HEADERS:
                 response_headers[key] = value
-        
-        # Create Flask response
-        flask_response = Response(
-            response.content,
-            status=response.status_code,
-            headers=response_headers
-        )
-        
-        return flask_response
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Proxy error: {str(e)}")
-        error_message = f"Proxy error: {str(e)}"
-        return Response(error_message, status=502, content_type='text/plain')
-    
+
+        return Response(response.content, status=response.status_code, headers=response_headers)
+
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        error_message = f"Unexpected proxy error: {str(e)}"
-        return Response(error_message, status=500, content_type='text/plain')
-
-@app.errorhandler(404)
-def not_found(error):
-    """Handle 404 errors"""
-    return Response("Endpoint not found on proxy server", status=404, content_type='text/plain')
-
-@app.errorhandler(500)
-def internal_error(error):
-    """Handle 500 errors"""
-    logger.error(f"Internal server error: {str(error)}")
-    return Response("Internal proxy server error", status=500, content_type='text/plain')
+        logger.error(f"Proxy error: {str(e)}")
+        return Response(f"Proxy error: {str(e)}", status=500, content_type="text/plain")
 
 if __name__ == '__main__':
-    # Run the Flask app
-    logger.info(f"Starting proxy server on port 5000, forwarding to {TARGET_URL}")
+    logger.info(f"Starting Flask proxy on port 5000 forwarding to {TARGET_URL}")
     app.run(host='0.0.0.0', port=5000, debug=True)
