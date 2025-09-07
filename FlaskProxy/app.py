@@ -13,8 +13,9 @@ def proxy(path):
 
     # 构建转发的 headers
     headers = {key: value for key, value in request.headers if key.lower() != "host"}
-    headers["CF-Connecting-IP"] = client_ip   # Worker 可直接识别
-    headers["X-Forwarded-For"] = client_ip    # 备用，方便日志追踪
+    headers["X-Real-IP"] = client_ip      # 用自定义 header 传递
+    headers["X-Client-IP"] = client_ip    # 冗余，方便调试
+    headers["X-Forwarded-For"] = client_ip
 
     # 转发请求
     resp = requests.request(
