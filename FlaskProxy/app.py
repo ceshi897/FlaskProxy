@@ -40,9 +40,10 @@ def proxy(path):
         for key, value in request.headers:
             if key.lower() not in EXCLUDED_HEADERS:
                 headers[key] = value
-        
-        # Set the host header to the target host
-        #headers['Host'] = '360seapi.ceshi897.cn'
+
+        # 获取真实客户端IP，并覆盖转发
+        real_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+        headers["X-Forwarded-For"] = real_ip
         
         # Prepare request data
         data = None
