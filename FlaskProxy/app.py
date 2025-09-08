@@ -43,8 +43,7 @@ def proxy(path):
 
         # ⭐️ 关键：附加真实客户端 IP
         # request.remote_addr 是直接访问 Flask 的客户端 IP
-        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-        headers['X-Real-IP'] = client_ip
+        headers["X-Forwarded-For"] = real_ip
 
         # 构造请求体
         data = None
