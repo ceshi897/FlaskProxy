@@ -4,81 +4,105 @@ from flask import Flask, request, Response
 import requests
 from urllib.parse import urljoin
 
-# 日志配置
+# Configure logging for debugging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Create Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
 
-# 修改这里，换成你的 Cloudflare Worker 边缘域名
+# Target API endpoint
 TARGET_URL = "https://360seapi.ceshi897.cn"
 
-# 不转发的头
+# Headers that should not be forwarded to avoid connection issues
 EXCLUDED_HEADERS = {
     'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer',
     'upgrade', 'proxy-authenticate', 'proxy-authorization', 'host'
 }
 
-@app.route('/', defaults={'path': ''}, methods=[
-    'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
-@app.route('/<path:path>', methods=[
-    'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
+@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
 def proxy(path):
+    """
+    Proxy all requests to the target API endpoint
+    """
     try:
-        # 拼接目标 URL
+        # Construct the target URL
         target_url = urljoin(TARGET_URL, path)
         if request.query_string:
             target_url += '?' + request.query_string.decode('utf-8')
-
+        
         logger.debug(f"Proxying {request.method} request to: {target_url}")
-
-        # 构造头部
+        
+        # Prepare headers for forwarding
         headers = {}
         for key, value in request.headers:
             if key.lower() not in EXCLUDED_HEADERS:
                 headers[key] = value
-
-        headers['Host'] = urljoin(TARGET_URL, '/').split('/')[2]
-
-        # ⭐️ 关键：附加真实客户端 IP
-        #headers = dict(request.headers)
-        headers["X-Real-IP"] = real_ip  # 新增：把真实IP放到 X-Real-IP
-        headers["X-Forwarded-For"] = real_ip  # 或者追加到链表里
-
-        # 构造请求体
+        
+        # Set the host header to the target host
+        #headers['Host'] = '360seapi.ceshi897.cn'
+        
+        # Prepare request data
         data = None
         if request.method in ['POST', 'PUT', 'PATCH']:
             if request.content_type and 'application/json' in request.content_type:
                 data = request.get_json()
             else:
                 data = request.get_data()
-
-        # 转发请求
+        
+        # Make the proxy request
         response = requests.request(
             method=request.method,
             url=target_url,
             headers=headers,
             data=data,
+            params=None,  # Already included in target_url
             allow_redirects=False,
             stream=True,
             timeout=30
         )
-
-        # 构造响应
+        
+        logger.debug(f"Received response with status: {response.status_code}")
+        
+        # Prepare response headers
         response_headers = {}
         for key, value in response.headers.items():
             if key.lower() not in EXCLUDED_HEADERS:
                 response_headers[key] = value
-
-        return Response(response.content, status=response.status_code, headers=response_headers)
-
-    except Exception as e:
+        
+        # Create Flask response
+        flask_response = Response(
+            response.content,
+            status=response.status_code,
+            headers=response_headers
+        )
+        
+        return flask_response
+        
+    except requests.exceptions.RequestException as e:
         logger.error(f"Proxy error: {str(e)}")
-        return Response(f"Proxy error: {str(e)}", status=502, content_type='text/plain')
+        error_message = f"Proxy error: {str(e)}"
+        return Response(error_message, status=502, content_type='text/plain')
+    
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        error_message = f"Unexpected proxy error: {str(e)}"
+        return Response(error_message, status=500, content_type='text/plain')
 
+@app.errorhandler(404)
+def not_found(error):
+    """Handle 404 errors"""
+    return Response("Endpoint not found on proxy server", status=404, content_type='text/plain')
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors"""
+    logger.error(f"Internal server error: {str(error)}")
+    return Response("Internal proxy server error", status=500, content_type='text/plain')
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Starting Flask proxy on port {port}, forwarding to {TARGET_URL}")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    # Run the Flask app
+    logger.info(f"Starting proxy server on port 5000, forwarding to {TARGET_URL}")
+    app.run(host='0.0.0.0', port=5000, debug=True)
