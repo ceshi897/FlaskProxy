@@ -42,7 +42,7 @@ def proxy(path):
         headers['Host'] = urljoin(TARGET_URL, '/').split('/')[2]
 
         # ⭐️ 关键：附加真实客户端 IP
-        headers = dict(request.headers)
+        #headers = dict(request.headers)
         headers["X-Real-IP"] = real_ip  # 新增：把真实IP放到 X-Real-IP
         headers["X-Forwarded-For"] = real_ip  # 或者追加到链表里
 
